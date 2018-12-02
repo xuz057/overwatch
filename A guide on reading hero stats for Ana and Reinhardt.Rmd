@@ -1,0 +1,110 @@
+---
+title: "An analysis on some important hero stats of Reinhardt"
+author: "Xuan Zhu"
+date: "November 12, 2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,dev="CairoPNG",fig.align = "center", 
+                      fig.width = 5.656, fig.height = 4, global.par = TRUE)
+library(arm)
+library(tidyverse)
+library(lme4)
+```
+
+# Introduction
+**Background Info**
+   For a good explanation of how overwatch is played, go to this website:
+   
+   https://www.wired.com/2017/01/overwatch-guide/.
+   
+   For those who are already overwatch players and are interested in Reinhardt, this analysis is focused on the effect of death rate(per game) and the number of Fire kills, Charge kills and ult kills on your win rate. In common sense, we know that the less death rate is, the higher the win rate; and the more kills we get, the higher the win rate. But numerically, how much the effect could be is what we still do not know.
+   
+   *The "Fire", "Charge" and "Ultimate skill" are names of three unique hero skills belong to Reinhardt.
+   
+# Method
+
+**i. Data Source** 
+
+  I used the public data from www.overbuff.com. For detailed procedure on how to web scrape statistics from the website, please refer to the Appendix: Data Mining Instruction. Several things need to be mentioned before you dive into the model:
+ 
+  a) The game records are taken in the time period of late-Nov,2018, corresponding to the game version of PATCH 1.30.0.1.The variables I choose to put in my model are usually not sensitive to new patches. But this is not 100% guaranteed. Please be careful.
+
+  b) The game records are from top 100 players rated by Overbuff instead of Blizzard. The difference is subtle, but Overbuff's rating system is able to filter out those who play a lot and get a relatively stable high skill rating score. For example, a top 500 support player in Blizzard's rating system is required to play at least 50 games to be shown on the top list, but we do not know how many games he was playing on Ana. Maybe he just played 2 or 3 games as Ana and played the rest 48 games as Zenyatta. But Overbuff's hero ranking system can ensure each player recorded in my dataset is particularly pro in his/her chosen heroes.
+  
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+  GameRecordS13 <-  read_csv("GameRecordS13R.csv")
+  GameRecordS13R <- data.frame(GameRecordS13[,-1])
+  GameRecordS13R <-GameRecordS13R%>%dplyr::select(WIN_RATE,WIN,LOSS,PLAYER_ID,DEATH,CHARGE,ULT,FIRE) #remove weird records
+head(GameRecordS13R)
+```
+  
+
+Each row in the data set represents one record of each time one player opens Overwatch. For example, Arty-1346 logged into Overwatch last night, playing 6 games as Rein in total and the win-loss record is 3-3. The numbers following the PLAYER_ID columns are the average stats **per game** for the 6 games he played.
+    
+  **ii.Model Used** 
+
+The model used for analysis is a multilevel logistic model, which takes the variablity of personal performance into account.
+    
+$logit^{^{-1}}(\beta _{_{0}}+\beta_{charge}Charge+\beta_{_{Ult}}Ult+\beta_{Fire}Fire+\beta_{Death}Death)= P_{Win}$
+    
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+  #centerize predictors
+c.DEATHR <- GameRecordS13R$DEATH - mean(GameRecordS13R$DEATH)
+c.CHARGE <- GameRecordS13R$CHARGE - mean(GameRecordS13R$CHARGE)
+c.ULT <- GameRecordS13R$ULT - mean(GameRecordS13R$ULT)
+c.FIRE <- GameRecordS13R$FIRE - mean(GameRecordS13R$FIRE)
+
+mean(GameRecordS13R$DEATH)
+mean(GameRecordS13R$CHARGE)
+mean(GameRecordS13R$ULT)
+mean(GameRecordS13R$FIRE)
+  mR <-glmer(cbind(WIN,LOSS)~c.DEATHR+c.CHARGE+c.ULT+c.FIRE+(1|PLAYER_ID), data=GameRecordS13R,family=binomial(logit))
+summary(mR)
+
+```
+    
+
+# Result
+**i. Model Choice**
+
+1.As we observe from model output, the standard error($\sigma_x^2$) is very small, which means that All top Rein players play rein at a similar level. This makes sense because our dataset is focused on the performance of "best Reinhardts". Those players may reach the upper limit of imroving their Reinhardt stats.(And ** Numbers does not mean everything. **) This is something we cannot control. If we have the dataset of players from lower tiers, the group variance is expected to be large and we will not be able to ignore it. Therefore, I tend to keep this model as my first choice rather than simply applying the logistic model.
+
+All the predictors are significant at 95% confidence level, as we expected. 
+
+Are there any interaction terms? Good Fire kills leads to faster ult, and more ults in games may imply more ult kills. Let's try:
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+mTry <-glmer(cbind(WIN,LOSS)~c.DEATHR+c.FIRE*c.ULT+c.CHARGE +(1|PLAYER_ID), data=GameRecordS13R,family=binomial(logit))
+summary(mTry)
+```
+
+It seems like the interaction term is not significant.
+
+**ii.Interpretation**
+Average Death per game:9.296472
+Average Charge Kills per game:2.847276
+Average Ult Kills per game: 4.855759
+Average Fire Kills per game: 8.849342
+ 
+  If you are a top Reinhardt player(SR>4400) and have an average death &Fire Kills& Ult kills, your odds of win is $e^{0.3267}=1.3863$, which is the same as win rate = 57.98%. Usually, the average win rate for GrandMaster(SR>4000) Rein players is around 55%. So from our model, we can get a rough idea that the win rate of Rein main players will increase 2% if you play hard to make your score rank up from 4000 to 4400.
+  
+  If you make a mistake in game and this leads you to die once more, your odds of win will decrease by $e^{0.1677}-1=$15%. Similarly, we can calculate the odds change for other predictors.
+  
+   
+**iii.Model Checking**
+
+```{r echo=FALSE}
+   binnedplot(fitted(mR),resid(mR,type="response"))
+```
+     
+The binned residual looks good. They scattered equally above and below 0 average residual. One might notice that the expected values are kind of centered between 0.5-0.6, and this is because the current average win rate for Grandmaster-level Rein player is about 55%. In other words, The distribution of our original win rate is not normal.
+
+
+## Discussion
+
+It's understandable why Fire, Ult and Charge appear in the model, but why death is important as well rather than picking KD(Killing/Death ratio) as the predictor? Because killing enemies is not the only job a tank is expected to do from a team perspective. Sometimes Rein's teammates need Rein to protect his teammate first. A good Rein can have a low KD. In other words, when converting the death rate to KD ratio, we lose some key information.
+
+## Appendix
+  Data Mining Instruction:https://github.com/xuz057/overwatch/blob/master/Data_Mining_Instruction.Rmd
