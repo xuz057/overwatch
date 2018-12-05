@@ -1,0 +1,204 @@
+---
+title: "Overwatch, the essence of Reinhardt:       an analysis of the performance of top 100 Rein players in Season 13"
+author: "Xuan Zhu"
+date: "December 3rd, 2018"
+output: pdf_document
+fontsize: 12pt
+header-includes:
+   - \usepackage{setspace}
+   - \doublespacing
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,dev="CairoPNG",fig.align = "center", 
+                      fig.width = 8, fig.height = 8, global.par = TRUE)
+library(arm)
+library(tidyverse)
+library(lme4)
+```
+
+
+!["Reinhard"]("Rein-Header1080")
+
+#Abstract
+
+  Behind every competitive game on earth is a bunch of ambitious players seeking for wins. And among all the ambitious gamers there is always a group of "best of the best" people who occupy the top list in the ranking system. We know that some of those top players have already become professional players, so they usually play under the guidance of their coaches; the others are famous streamers on Twitch, or talented enough to compete with pros without prior training. Nonetheless, they are representing the highest level of the heroes they are playing in this game.
+  
+  But have you ever curious about this: what are their secrets to their success? Is there anything that we, common players could learn from those pros' play? This report "The essence of Reinhardt: an analysis of the performance of top 100 Rein players in Season 13 " aims at uncovering some nature of the hero Reinhardt by examining the statistics of the most skilled specialists to reveal their way of playing Reinhardt. By doing so, we are able to gain a better game understanding as an ordinary player, and possibly, to get a higher SR score in the future as most of us expect.
+
+# Introduction
+
+**Background Info**
+ 
+   If you are a starter in Overwatch, for a good explanation of how overwatch is played, please go to this website:
+   
+   https://www.wired.com/2017/01/overwatch-guide/
+   
+   In the current competitive season 13, Reinhardt is the most popular main tank hero with the highest picking rate in all tiers, so I pick it as the sample hero to study. This means that knowing how to play Reinhardt is important if you want to rank your SR score up. From the website www.overbuff.com (one of the most authorative stats website for Overwatch), we can quickly grab the average stats for each tier, separately. Take the highest tier(SR score>4000) as an example:
+   
+   !["Grandmaster stats 1"](00)
+
+   !["Grandmaster stats 2"](11)
+  
+   !["Grandmaster stats 3"](22)
+   
+   The average win rate of Grandmaster level Reins is 54.91%. The E/D ratio is 2.2, and eliminations per game is 22,etc. But this only summerizes the average level of  players with >4000 SR score. In other words, some data used to calcualate the means is from those who are not rein mains, but are forced to fill in the tank position as their teammates request. As a result, their stats are not as good as the Rein mains', pulling the numbers shown down at some level. The situation happens a lot in Overwatch. But we only want to study on the stats of pro Reinhardt players because their Reins are representative.
+   
+   
+# Method
+
+**i. Data Source** 
+
+  I used the public data from www.overbuff.com. For detailed procedure on how to web scrape statistics from the website, please refer to the Appendix: Data Mining Instruction. Several things need to be mentioned before you dive into the model:
+ 
+  a) The game records are taken in the time period of late-Nov,2018, corresponding to the game version of PATCH 1.30.0.1.The variables I choose to put in my model are usually not sensitive to new patches. But this is not 100% guaranteed. Please be careful.
+
+  b) The game records are from top 100 players rated by Overbuff instead of Blizzard. The difference is subtle, but Overbuff's rating system is able to filter out those who play a lot and get a relatively stable high skill rating score. For example, a top 500 support player in Blizzard's rating system is required to play at least 50 games to be shown on the top list, but we do not know how many games he was playing on Ana. Maybe he just played 2 or 3 games as Ana and played the rest 48 games as Zenyatta. But Overbuff's hero ranking system can ensure each player recorded in my dataset is particularly pro in his/her chosen heroes.
+  
+  The source data is as the following in R:
+  
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+  GameRecordS13 <-  read_csv("GameRecordS13R.csv")
+  GameRecordS13R <- data.frame(GameRecordS13[,-1])
+  GameRecordS13R <-GameRecordS13R%>%dplyr::select(PLAYER_ID,WIN_RATE,WIN,LOSS,DAMAGE,SOLO_KILLS,BLOCKED,ED,DEATH,CHARGE,ULT,FIRE,GAME_PLAYED)
+head(GameRecordS13R)
+```
+
+Each row in the data set represents each time the player opens Overwatch. For example, Arty-1346 logged into Overwatch last night, playing 6 games as Rein in total and the win-loss record is 3-3. The numbers following the LOSS columns are the average stats per game for the 6 games he played. Here's an explanation list of variables:
+
+**DAMAGE**   The damage made by Rein.
+
+**SOLO_KILLS**  The eliminations that Rein get without teammates' help.This variable is usually considered unimportant for Rein. We will decide whether to exclude it after the EDA process later.
+
+**BLOCKED** The blocked damage by Rein's shield as tank.
+
+**ED**   The elimination/death ratio
+
+**DEATH**  The death rate per game. Why death is also important rather than simply picking ED(Killing/Death ratio) as the predictor? Because killing enemies is not the only job a tank is expected to do from a team perspective. Sometimes Rein's teammates need Rein to protect his teammate by shield first. A good Rein can have a low KD. In other words, when converting the death rate to KD ratio, we lose some key information. Besides, we expect there is interaction between ED and DEATH.
+
+**CHARGE** One of the unique skills of Rein. Higer kills gained by using this skill indicate a better master of Rein.
+
+**ULT**  One of the unique skills of Rein.Higer kills gained by using this skill indicate a better master of Rein.
+
+**FIRE**  One of the unique skills of Rein. Higer kills gained by using this skill indicate a better master of Rein.
+
+# Basic Data Visualizaition & Exploratory Data Analysis
+
+First, we take a look at the distribution of each variable in the dataset. 
+
+The average win rate for each player is calculated by $sum(Wins)/Sum(Game Played)$. The red line in the plot represents the average level of all players, which is about 58%. So the individual win rate is distributed randomly around the average line.
+
+One may notice that there are outliers. After checking the source data, I confirm that the data is recorded correctly and hence we should take them into account. The game records were taken recently, so it is possible that there exist two guys rarely win within several days. 
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+AVERAGE_WIN_RATE <-GameRecordS13R%>%group_by(PLAYER_ID)%>%mutate(AVG_WIN=sum(WIN)/sum(GAME_PLAYED))%>% dplyr::select(PLAYER_ID,AVG_WIN)
+mean(AVERAGE_WIN_RATE$AVG_WIN)
+library(ggplot2)
+p1 <- ggplot(AVERAGE_WIN_RATE,aes(x=PLAYER_ID,y=AVG_WIN))+geom_point(size=0.5)+theme(axis.text.x = element_blank(),axis.ticks.x=element_blank())+ geom_abline(slope=0,intercept=0.57699092,color="red")+ggtitle("WIN RATE")
+library(gridExtra)
+p2 <-ggplot(GameRecordS13R,aes(DAMAGE))+geom_histogram(bins=200)
+p3 <- ggplot(GameRecordS13R,aes(SOLO_KILLS))+geom_histogram(bins=200)
+p4 <-ggplot(GameRecordS13R,aes(BLOCKED))+geom_histogram(bins=200)
+p5 <- ggplot(GameRecordS13R,aes(ED))+geom_histogram(bins=200)
+p6 <- ggplot(GameRecordS13R,aes(DEATH))+geom_histogram(bins=200)
+p7 <- ggplot(GameRecordS13R,aes(CHARGE))+geom_histogram(bins=200)
+p8 <- ggplot(GameRecordS13R,aes(ULT))+geom_histogram(bins=200)
+p9 <- ggplot(GameRecordS13R,aes(FIRE))+geom_histogram(bins=200)
+grid.arrange(p1,p2,p3,p4,p5,p6,p7,p8,p9,ncol=2,nrow=5,top="The distribution of each variable")
+```
+
+The variables DAMAGE, BLOCKED and ED look normal but they are kind of right skewed. Other variables have some values that occur multiple times. For example, SOLO_KILLS has an issue of zero inflation.
+
+Next, we display several plots to exhibit the relationships between the possible predictors and the response variable. For example, p1 shows that high win rates occur more when log(DAMAGE) is high than it does when log(DAMAGE) is low. In p2 the trend is not that obvious, so we decide not to include SOLO_KILLS in the model. 
+
+**Sample EDA**
+```{r echo=FALSE}
+GameRecordS13R$c.DEATHR <- GameRecordS13R$DEATH - mean(GameRecordS13R$DEATH)
+GameRecordS13R$c.CHARGE <- GameRecordS13R$CHARGE - mean(GameRecordS13R$CHARGE)
+GameRecordS13R$c.ULT <- GameRecordS13R$ULT - mean(GameRecordS13R$ULT)
+GameRecordS13R$c.FIRE <- GameRecordS13R$FIRE - mean(GameRecordS13R$FIRE)
+
+EDAsubset <- data.frame(GameRecordS13R[c(1:100),]) #choose to plot by some players
+c.DEATHRsub <- EDAsubset$DEATH - mean(EDAsubset$DEATH)
+c.ULTsub <- EDAsubset$ULT - mean(EDAsubset$ULT)
+c.CHARGEsub <- EDAsubset$CHARGE - mean(EDAsubset$CHARGE)
+p2 <- ggplot(EDAsubset)+ geom_point(aes(x=log(DAMAGE),y=WIN_RATE))+facet_wrap(~PLAYER_ID)+ggtitle("DAMAGE VS. WIN_RATE")
+p2
+
+p3 <- ggplot(EDAsubset)+ geom_point(aes(x=SOLO_KILLS,y=WIN_RATE))+facet_wrap(~PLAYER_ID)+ggtitle("SOLO_KILLS VS. WIN_RATE")
+p3
+```
+
+After doing EDA, we select out the predictors that we think display a trend with the win rate: DAMAGE,DEATH,FIRE and CHARGE.
+
+**ii.Model Used** 
+
+The model used for analysis is a multilevel logistic model, which takes the variablity of personal performance into account.
+
+$logit^{-1}(\beta _{_{0}}+\beta_{charge}Charge+\beta_{Damage}log(Damage)+\beta_{Fire}Fire+\beta_{Death}Death = P_{Win}$
+
+    
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(MASS)
+mR <-glmmPQL(cbind(WIN,LOSS)~log(DAMAGE)+c.DEATHR+c.CHARGE+c.FIRE,~1|PLAYER_ID, data=GameRecordS13R,family=binomial(logit))
+summary(mR)
+```
+    
+# Result
+
+**i. Model Choice**
+
+The choice of model predictors:
+
+ From the EDA process we have observed that among the three unique skills of Rein, ULT kills do not demonstrate an obvious trend with win rate. One explanation is that in games of top players, the efficiency of ultiminate skill 'shatter' does not depend on the personal ability of players much but on the cooperation of team, because it is a skill that can be easily disrupted by enemies without teammates' help. On contrary, even though the skills CHARGE and FIRE are not as powerful as ULT, they have less cooldown times, faster launch time and are harder to be interrupted so that they are more related to personal level of performance.
+ 
+Why BLOCKED is not included either? Originally, we expect this would be significant, but both EDA and the summary of the following model show that it is actually as important as we usually think. (p=0.8337>0.05)
+
+```{r}
+mR2 <-glmmPQL(cbind(WIN,LOSS)~log(DAMAGE)+log(BLOCKED)+c.DEATHR+c.CHARGE+c.FIRE,~1|PLAYER_ID, data=GameRecordS13R,family=binomial(logit))
+summary(mR2)
+```
+ 
+The package I am using:
+
+   I used the function "glmmPQL" from the package MASS. When using "glmer" function instead, I got a warning message saying that it fails to converge. It may be a technical issue from the package, but one should realize that the approximation method to build the model is based on the function I am applying. The major difference between glmer (which is provided by the package lme4) and glmmPQL (which relies on function lme, from the nlme pacakge) is that the parameter estimation algorithm used in nlme is not optimized for dealing with crossed random effects, which are associated with a sparse design matrix, while lme4 takes advantage of this structure. (Pinheiro & Bates, "Mixed-Effects Models in S and S-PLUS", Springer, 2000, pp. 163)
+
+
+
+**ii.Interpretation**
+
+    The $\sigma x^2$ is 0.18, which measures the variability within groups.
+
+  The intercept is not meaningful because log(DAMAGE) will not be zero.
+  
+  If you make a mistake in game and this leads you to die once more, your odds of win will decrease by $e^{0.2}-1=$22%. Similarly, we can calculate the odds change for other predictors. The increase or decrease in odds of wins seems large, as it will be super hard to increase your perfermance beyond even the average level of the best players. However, the magnitude of the parameters would give us a idea of which stats affect the win rate more.
+  
+   
+**iii.Model Checking**
+
+All the predictors are significant at 95% confidence level, as we expected.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+library(nlme)
+intervals(mR,which="fixed")
+```
+
+
+We apply binned residual plot instead of the simple residual plots because y has repeated patterns.
+
+```{r echo=FALSE}
+   binnedplot(fitted(mR),resid(mR,type="response"))
+```
+     
+The binned residual looks good. There is a subtle right upper trend, but it is acceptable. One might notice that the expected values are kind of centered between 0.5-0.6, and this is because the current average win rate is ~55%. Usually the win rate would not be too high or too low. 
+
+# Conclusion & Discussion
+   
+In conclusion, at a top level of Rein games, the effect of SOLO_KILLS, ULT and BLOCKED is not that significant, but a better use of FIRE & CHARGE, and keeping your death rate low with a relatively high damage are the direction we should strive for. 
+
+#Appendix
+
+**Data Mining Instruction.rmd**:https://github.com/xuz057/overwatch/blob/master/Data_Mining_Instruction.Rmd
+  
+**The major difference between glmer and glmmPQL**: Pinheiro & Bates, "Mixed-Effects Models in S and S-PLUS", Springer, 2000, pp. 163.
